@@ -1,0 +1,10 @@
+# never commit the real config - it holds your Spotify client_secret
+config.json
+errors.log
+*.spotdl
+
+# downloaded audio
+*.m4a
+*.mp3
+*.opus
+*.flac

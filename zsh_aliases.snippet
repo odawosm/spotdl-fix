@@ -1,0 +1,7 @@
+# spotdl — append to ~/.zsh_aliases
+# Cookies live in config.json, so plain `spotdl` already authenticates.
+# These only pair --format with the right bitrate.
+
+# format toggle - plain `spotdl` uses m4a from config.json
+alias spotm4a='spotdl --format m4a --bitrate disable'
+alias spotmp3='spotdl --format mp3 --bitrate 192k'
