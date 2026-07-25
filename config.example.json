@@ -2,7 +2,7 @@
     "client_id": "YOUR_SPOTIFY_CLIENT_ID",
     "client_secret": "YOUR_SPOTIFY_CLIENT_SECRET",
     "auth_token": null,
-    "user_auth": false,
+    "user_auth": true,
     "headless": false,
     "cache_path": "~/.config/spotdl/.spotipy",
     "no_cache": false,

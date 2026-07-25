@@ -36,6 +36,7 @@ Spotify credentials (see below).
 | `threads` | `8` | Downloads are network-bound; parallelism is the only real speedup for playlists |
 | `yt_dlp_args` | `--cookies-from-browser firefox` | Clears YouTube's "confirm you're not a bot" gate |
 | `use_official_api` | `true` | Default path scrapes Spotify's internal API and trips its fraud check |
+| `user_auth` | `true` | Playlists require user OAuth, not just app credentials — see below |
 | `print_errors` | `true` | Default hides yt-dlp's real error behind a one-line summary |
 | `save_errors` | `~/.config/spotdl/errors.log` | spotdl keeps **no logs at all** by default |
 
@@ -104,19 +105,63 @@ absorbs it.
 - Wall-clock timings are network-bound and noisy — single samples are meaningless.
   An early 80s-vs-61s comparison looked like a 24% win but did not reproduce.
 
-## Open issue
+## Playlists need user OAuth
 
-As of 2026-07-25 the Spotify Web API returns 429 to spotdl even with fresh personal
-credentials, while the identical request via `curl` returns 200:
+Client Credentials (app-only) auth is enough for tracks and albums, but Spotify returns
+`401 Valid user authentication required` on `/playlists/{id}/items` — **even for a public
+playlist you own**. Playlist metadata succeeds; item listing does not.
+
+Verify the split yourself:
 
 ```sh
-# works — HTTP 200, correct track data
-curl -H "Authorization: Bearer $TOKEN" https://api.spotify.com/v1/tracks/<id>
+# 200 - playlist metadata is fine
+curl -H "Authorization: Bearer $TOKEN" \
+  "https://api.spotify.com/v1/playlists/<id>?fields=name,owner,public"
 
-# fails — spotipy logs "rate/request limit … 86400 s"
-spotdl save "https://open.spotify.com/track/<id>" --save-file t.spotdl
+# 401 - item listing requires user auth
+curl -H "Authorization: Bearer $TOKEN" \
+  "https://api.spotify.com/v1/playlists/<id>/items?limit=5"
 ```
 
-Credentials load correctly (verified via `spotdl.utils.config.get_config`), so the
-difference is in how spotipy makes the request rather than the credentials themselves.
-Unresolved.
+Fix: set `user_auth: true`. spotdl then swaps `SpotifyClientCredentials` for
+`SpotifyOAuth`, requesting scope `playlist-read-private` and opening a browser once.
+
+**The redirect URI is hardcoded** in `spotdl/utils/spotify.py` to
+`http://127.0.0.1:9900/`. Register it in the dashboard under Settings → Redirect URIs —
+add **both** forms, since the dashboard may store it without the trailing slash:
+
+```
+http://127.0.0.1:9900/
+http://127.0.0.1:9900
+```
+
+Then click **Save**. Added URIs appear in the field before they are persisted, which is
+easy to miss.
+
+Note that hitting `accounts.spotify.com/authorize` with `curl` is **not** a valid way to
+test whether a redirect URI is registered — Spotify validates it only after login, so a
+bogus URI returns the same `303` to the login page as a correct one.
+
+## Gotchas
+
+- **Stale token cache.** spotipy caches the access token at `~/.config/spotdl/.spotipy`
+  and reuses it while `expires_at` is in the future, *without* checking whether
+  `client_id` changed. After editing credentials, delete it or you will keep
+  authenticating as the old app for up to an hour:
+
+  ```sh
+  rm ~/.config/spotdl/.spotipy
+  ```
+
+- **`save_errors` can crash.** Writing a `SpotifyException` to the error log raises
+  `TypeError: unsupported operand type(s) for +: 'int' and 'str'` — spotdl's
+  `entry_point.py:169` assumes every item in `exc.args` is a string, but
+  `SpotifyException` puts an int status code first. Upstream bug; rely on
+  `print_errors` (console) as the dependable channel.
+
+- **`--use-official-api` takes no value.** It is a boolean flag, so
+  `--use-official-api false` fails with "invalid choice: 'false'" because `false` is
+  parsed as the operation. Set it in `config.json` instead.
+
+- **Don't pipe to `tail` while debugging.** Pipe buffering withholds output until exit,
+  so a hanging command looks like it produced nothing. Redirect to a file instead.
